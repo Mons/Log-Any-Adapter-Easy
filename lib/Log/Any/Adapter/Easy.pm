@@ -8,8 +8,9 @@ use warnings;
 use Carp;
 use Log::Any::Adapter ();
 use parent qw(Log::Any::Adapter::Base);
-use Log::Any::Adapter::Easy::Screen;
-use Log::Any::Adapter::Easy::Syslog;
+use Scalar::Util 'weaken';
+#use Log::Any::Adapter::Easy::Screen;
+#use Log::Any::Adapter::Easy::Syslog;
 
 =head1 NAME
 
@@ -33,6 +34,7 @@ our $VERSION = '0.01'; $VERSION = eval($VERSION);
 =cut
 
 our %logs = ( ( map {$_ => 1} qw(screen) ), (map { $_ => 0 } qw(syslog file)) );
+our $SINGLE;
 
 sub import {
 	my $pk = shift;
@@ -59,35 +61,73 @@ sub import {
 
 sub init {
 	my $self = shift;
+	#warn "init (@_) ";
+	$SINGLE and croak "Duplicate initialization of Easy adapter";
+	weaken ( $SINGLE = $self );
 	my %args = @_;
-	#use uni::perl ':dumper';
-	#warn "init @_".dumper $self;
 	if ($self->{screen}) {
-		if( eval { require Log::Any::Adapter::Easy::Screen; 1 } ) {
-			$self->{screen} = Log::Any::Adapter::Easy::Screen->new( $self->{screen} eq "1" ? () : %{ $self->{screen} } );
-			push @{ $self->{logs} ||=[] }, $self->{screen};
-		} else {
-			carp "Can't load screen logger: $@";
-		}
+		$self->screen( $self->{screen} );
 	}
 	if ($self->{syslog}) {
-		if( eval { require Log::Any::Adapter::Easy::Syslog; 1 } ) {
-			$self->{syslog} = Log::Any::Adapter::Easy::Syslog->new( $self->{syslog} eq "1" ? () : %{ $self->{syslog} } );
-			push @{ $self->{logs} ||=[] }, $self->{syslog};
-		} else {
-			carp "Can't load syslog logger: $@";
-		}
+		$self->syslog( $self->{syslog} );
 	}
 	if ($self->{file}) {
-		if( eval { require Log::Any::Adapter::Easy::File; 1 } ) {
-			$self->{syslog} = Log::Any::Adapter::Easy::File->new( $self->{file} eq "1" ? () : %{ $self->{file} } );
-			push @{ $self->{logs} ||=[] }, $self->{file};
-		} else {
-			carp "Can't load syslog logger: $@";
-		}
+		$self->file( $self->{file} );
+	}
+	if (!@{ $self->{logs} ||=[] }) {
+		croak "Selected no output methods";
 	}
 	return;
 }
+
+sub screen {
+	my $self = shift;
+	ref $self or $self = $SINGLE or die "No adapter initialized";
+	$self->{screen} = @_ ? shift : 1;
+	if(!$self->{screen}) {
+		delete $self->{screen};
+	}
+	if( eval { require Log::Any::Adapter::Easy::Screen; 1 } ) {
+		$self->{screen} = Log::Any::Adapter::Easy::Screen->new( $self->{screen} eq "1" ? () : %{ $self->{screen} } );
+		push @{ $self->{logs} ||=[] }, $self->{screen};
+		weaken( $self->{logs}[-1] );
+	} else {
+		carp "Can't load screen logger: $@";
+	}
+}
+
+sub syslog {
+	my $self = shift;
+	ref $self or $self = $SINGLE or die "No adapter initialized";
+	$self->{syslog} = @_ ? shift : 1;
+	if(!$self->{syslog}) {
+		delete $self->{syslog};
+	}
+	if( eval { require Log::Any::Adapter::Easy::Syslog; 1 } ) {
+		$self->{syslog} = Log::Any::Adapter::Easy::Syslog->new( $self->{syslog} eq "1" ? () : %{ $self->{syslog} } );
+		push @{ $self->{logs} ||=[] }, $self->{syslog};
+		weaken( $self->{logs}[-1] );
+	} else {
+		carp "Can't load syslog logger: $@";
+	}
+}
+
+sub file {
+	my $self = shift;
+	ref $self or $self = $SINGLE or die "No adapter initialized";
+	$self->{file} = @_ ? shift : 1;
+	if(!$self->{file}) {
+		delete $self->{file};
+	}
+	if( eval { require Log::Any::Adapter::Easy::File; 1 } ) {
+		$self->{syslog} = Log::Any::Adapter::Easy::File->new( $self->{file} eq "1" ? () : %{ $self->{file} } );
+		push @{ $self->{logs} ||=[] }, $self->{file};
+		weaken( $self->{logs}[-1] );
+	} else {
+		carp "Can't load file logger: $@";
+	}
+}
+
 
 {
 	no strict 'refs';
@@ -101,7 +141,10 @@ sub init {
 			$msg =~ s{\n*$}{\n};
 			{
 				no warnings 'utf8';
-				eval{ $_->$method($msg); 1 } or carp "$@" for @{$self->{logs}};
+				for ( @{$self->{logs}} ) {
+					$_ or next;
+					eval{ $_->$method($msg); 1 } or carp "$@";
+				};
 			}
 		};
 	}
@@ -110,6 +153,8 @@ sub init {
 		*$method = sub () { 1 };
 	}
 }
+
+sub DESTROY {}
 
 =head1 AUTHOR
 
