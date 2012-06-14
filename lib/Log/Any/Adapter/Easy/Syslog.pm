@@ -16,6 +16,7 @@ our $SINGLE;
 
 sub new {
 	my $pkg = shift;
+	$SINGLE and return my $new = $SINGLE;
 	my $self = bless {
 		facility => 'user',
 		logopt   => 'ndelay,nofatal,nowait,pid',
@@ -25,7 +26,8 @@ sub new {
 		my ($n) = $0 =~ m{([^/]+)$}s;
 		$n;
 	};
-	$SINGLE and croak "Can't create 2 instances of $pkg: syslog restriction";
+	
+	#$SINGLE and croak "Can't create 2 instances of $pkg: syslog restriction";
 	#warn "create syslog $self->{name}: ($self->{logopt}) -> $self->{facility}";
 	weaken( $SINGLE = $self );
 	Sys::Syslog::openlog($self->{name}, $self->{logopt}, $self->{facility});

@@ -59,10 +59,14 @@ sub import {
 	Log::Any::Adapter->set('Easy', %args);
 }
 
+sub new {
+	$SINGLE and return my $new = $SINGLE;
+	shift->next::method(@_);
+}
+
 sub init {
 	my $self = shift;
-	#warn "init (@_) ";
-	$SINGLE and croak "Duplicate initialization of Easy adapter";
+	#warn "$self: init (@_) ";
 	weaken ( $SINGLE = $self );
 	my %args = @_;
 	if ($self->{screen}) {
